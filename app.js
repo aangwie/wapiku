@@ -4,7 +4,6 @@ const { body, validationResult } = require('express-validator');
 const socketIO = require('socket.io');
 const qrcode = require('qrcode');
 const http = require('http');
-const fs = require('fs');
 const { phoneNumberFormatter } = require('./helpers/formatter');
 const fileUpload = require('express-fileupload');
 const axios = require('axios');
@@ -32,12 +31,17 @@ app.use(fileUpload({
   debug: false
 }));
 
-app.get('/', (req, res) => {
+const db = require ('./helpers/db.js');
+
+(async() => {
+
+  app.get('/', (req, res) => {
   res.sendFile('index.html', {
     root: __dirname
   });
 });
 
+const saveSession = await db.readSession();
 const client = new Client({
   restartOnAuthFail: true,
   puppeteer: {
@@ -53,7 +57,8 @@ const client = new Client({
       '--disable-gpu'
     ],
   },
-  authStrategy: new LocalAuth()
+  //authStrategy: new LocalAuth()
+  session : saveSession
 });
 
 client.on('message', msg => {
@@ -137,10 +142,12 @@ io.on('connection', function(socket) {
     socket.emit('message', 'Whatsapp is ready!');
   });
 
-  client.on('authenticated', () => {
+  client.on('authenticated', (session) => {
     socket.emit('authenticated', 'Whatsapp is authenticated!');
     socket.emit('message', 'Whatsapp is authenticated!');
-    console.log('AUTHENTICATED');
+    console.log('AUTHENTICATED', session);
+    //save session to DB
+    db.saveSession(session);
   });
 
   client.on('auth_failure', function(session) {
@@ -149,6 +156,8 @@ io.on('connection', function(socket) {
 
   client.on('disconnected', (reason) => {
     socket.emit('message', 'Whatsapp is disconnected!');
+    //remove session from DB
+    db.removeSession();
     client.destroy();
     client.initialize();
   });
@@ -345,3 +354,6 @@ app.post('/clear-message', [
 server.listen(port, function() {
   console.log('App running on *: ' + port);
 });
+
+})();
+
